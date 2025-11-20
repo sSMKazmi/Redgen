@@ -1,0 +1,24 @@
+{
+    "manifest_version": 3,
+    "name": "RedGen - POD AI Assistant",
+    "version": "1.0",
+    "description": "Optimize Redbubble listings with Gemini AI.",
+    "permissions": [
+        "sidePanel",
+        "storage",
+        "activeTab",
+        "scripting"
+    ],
+    "host_permissions": [
+        "https://www.redbubble.com/*"
+    ],
+    "background": {
+        "service_worker": "service-worker.js"
+    },
+    "side_panel": {
+        "default_path": "index.html"
+    },
+    "action": {
+        "default_title": "Open RedGen"
+    }
+}
