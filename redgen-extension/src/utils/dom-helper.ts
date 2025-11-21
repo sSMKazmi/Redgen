@@ -1,62 +1,76 @@
 // src/utils/dom-helper.ts
 
-// === SCOUT: Reads the page ===
 export const scrapeProductPage = () => {
-    // 1. Grab Title
-    // Redbubble titles usually use specific classes, but H1 is a safe fallback
-    const titleEl = document.querySelector('h1') || document.querySelector('[data-testid="product-title"]');
-    const title = titleEl?.textContent?.trim() || '';
+    try {
+        // 1. Grab Title
+        const titleContainer = document.querySelector('[class*="ArtworkInfo_titleContainer"]');
+        const titleEl = titleContainer?.querySelector('span[class*="styles_display3"]');
+        const title = titleEl?.textContent?.trim() || '';
 
-    // 2. Grab Description
-    const descEl = document.querySelector('[data-testid="product-description"]');
-    const description = descEl?.textContent?.trim() || '';
+        // 2. Grab Description
+        const descEl = titleContainer?.querySelector('span[class*="styles_body"]');
+        const description = descEl?.textContent?.trim() || '';
 
-    // 3. Grab Tags
-    // Redbubble puts tags in links like /shop/t-shirts?query=tagname
-    // We look for the keywords section
-    const tagElements = document.querySelectorAll('a[href*="/shop/"]');
-    const tagsArray: string[] = [];
+        // 3. Grab Tags
+        const tagContainer = document.querySelector('[data-testid="all-product-tags"]');
+        const tagLinks = tagContainer?.querySelectorAll('a');
+        const tagsArray: string[] = [];
+        tagLinks?.forEach(link => {
+            const text = link.textContent?.trim();
+            if (text) tagsArray.push(text);
+        });
+        const uniqueTags = [...new Set(tagsArray)].join(', ');
 
-    tagElements.forEach(el => {
-        const text = el.textContent?.trim();
-        // Simple filter to avoid grabbing menu items, only grab actual tags
-        if (text && text.length > 2 && !text.includes('Shop')) {
-            tagsArray.push(text);
-        }
-    });
+        // 4. Grab Image
+        const imgContainer = document.querySelector('[class*="ArtworkInfo_imageContainer"]');
+        const imgEl = imgContainer?.querySelector('img');
+        const imagePreview = imgEl?.src || '';
 
-    // Deduplicate and take top 15 tags (Redbubble limit is often 15-50)
-    const uniqueTags = [...new Set(tagsArray)].slice(0, 15).join(', ');
-
-    return { title, description, tags: uniqueTags };
+        return { title, description, tags: uniqueTags, imagePreview };
+    } catch (e) {
+        console.error("RedGen Scraper Error:", e);
+        return { title: "", description: "", tags: "", imagePreview: "" };
+    }
 };
 
-// === WORKER: Fills the form ===
 export const autofillUploadPage = (data: { title: string; tags: string; description: string }) => {
 
-    // Helper to force React to notice the value change
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-    const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+    // Helper to force value update on React controlled inputs
+    const setNativeValue = (element: HTMLElement, value: string) => {
+        const valueSetter = Object.getOwnPropertyDescriptor(element, 'value')?.set;
+        const prototype = Object.getPrototypeOf(element);
+        const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
 
-    const fillInput = (selector: string, value: string, isArea = false) => {
-        const el = document.querySelector(selector);
-        if (!el) return;
+        if (prototypeValueSetter && valueSetter !== prototypeValueSetter) {
+            prototypeValueSetter.call(element, value);
+        } else if (valueSetter) {
+            valueSetter.call(element, value);
+        } else {
+            (element as HTMLInputElement).value = value;
+        }
 
-        // Focus triggers
-        (el as HTMLElement).focus();
-
-        // Set value utilizing the prototype to bypass React suppression
-        const setter = isArea ? nativeTextAreaValueSetter : nativeInputValueSetter;
-        setter?.call(el, value);
-
-        // Dispatch events so Redbubble's validation sees it
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        (el as HTMLElement).blur();
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        element.dispatchEvent(new Event('blur', { bubbles: true }));
     };
 
-    // Redbubble specific IDs (based on standard English form)
-    fillInput('#work_title_en', data.title);
-    fillInput('#work_tags', data.tags, true); // Tags is usually a textarea or special input
-    fillInput('#work_description_en', data.description, true);
+    // --- UPDATED SELECTORS BASED ON YOUR HTML ---
+    const titleInput = document.querySelector('#work_title_en') as HTMLInputElement;
+    const tagsInput = document.querySelector('#work_tag_field_en') as HTMLTextAreaElement; // <--- FIXED ID
+    const descInput = document.querySelector('#work_description_en') as HTMLTextAreaElement;
+
+    if (titleInput) {
+        titleInput.focus();
+        setNativeValue(titleInput, data.title);
+    }
+
+    if (tagsInput) {
+        tagsInput.focus();
+        setNativeValue(tagsInput, data.tags);
+    }
+
+    if (descInput) {
+        descInput.focus();
+        setNativeValue(descInput, data.description);
+    }
 };

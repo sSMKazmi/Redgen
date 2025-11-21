@@ -3,7 +3,12 @@ import { Listing, AppSettings } from '../types';
 
 export const useStorage = () => {
     const [listings, setListings] = useState<Listing[]>([]);
-    const [settings, setSettings] = useState<AppSettings>({ apiKey: '' });
+    const [settings, setSettings] = useState<AppSettings>({
+        apiKey: '',
+        titlePrompt: '',
+        tagsPrompt: '',
+        descPrompt: ''
+    });
     const [loading, setLoading] = useState(true);
 
     // Load data on startup
