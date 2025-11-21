@@ -1,14 +1,17 @@
 import React from 'react';
-import { Listing } from '../types';
+import { generateMetadata } from '../utils/gemini-api';
+import { Listing, AppSettings } from '../types'; // Make sure you have this
 import { Trash2, ChevronDown, ChevronUp, Sparkles, Upload } from 'lucide-react';
 
 interface Props {
     listing: Listing;
+    settings: AppSettings; // <--- NEW
     onUpdate: (id: string, data: Partial<Listing>) => void;
     onDelete: (id: string) => void;
 }
 
-export const ListingCard: React.FC<Props> = ({ listing, onUpdate, onDelete }) => {
+export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDelete }) => {
+    const [isGenerating, setIsGenerating] = React.useState(false); // Local loading state
 
     // Handle Image Upload (Manual)
     const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -19,6 +22,66 @@ export const ListingCard: React.FC<Props> = ({ listing, onUpdate, onDelete }) =>
                 onUpdate(listing.id, { imagePreview: reader.result as string });
             };
             reader.readAsDataURL(file);
+        }
+    };
+
+    const handleScrape = async () => {
+        // Get the active tab
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab.id) return;
+
+        // Send message to content script
+        chrome.tabs.sendMessage(tab.id, { type: 'SCRAPE_PAGE' }, (response) => {
+            if (response && response.success) {
+                onUpdate(listing.id, { scrapedData: response.data });
+            }
+        });
+    };
+
+    const handleAutofill = async () => {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab.id) return;
+
+        // Combine Preserved + Generated Tags
+        const finalTags = [listing.preservedTags, listing.generatedData.tags]
+            .filter(Boolean)
+            .join(', ');
+
+        const payload = {
+            title: listing.generatedData.title || listing.scrapedData.title,
+            description: listing.generatedData.description || listing.scrapedData.description,
+            tags: finalTags
+        };
+
+        chrome.tabs.sendMessage(tab.id, { type: 'FILL_FORM', payload });
+    };
+
+    const handleGenerate = async () => {
+        if (!settings.apiKey) {
+            alert("Please enter your Gemini API Key in Settings first!");
+            return;
+        }
+
+        setIsGenerating(true);
+        try {
+            const result = await generateMetadata(
+                settings.apiKey,
+                listing.imagePreview, // Using the preview as the source
+                listing.customContext,
+                listing.scrapedData
+            );
+
+            onUpdate(listing.id, {
+                generatedData: {
+                    title: result.title,
+                    tags: result.tags,
+                    description: result.description
+                }
+            });
+        } catch (error: any) {
+            alert("Generation Failed: " + error.message);
+        } finally {
+            setIsGenerating(false);
         }
     };
 
@@ -62,6 +125,16 @@ export const ListingCard: React.FC<Props> = ({ listing, onUpdate, onDelete }) =>
                         </div>
                     )}
 
+                    {/* Action Row: Scrape */}
+                    <div className="flex gap-2 mb-3">
+                        <button
+                            onClick={handleScrape}
+                            className="flex-1 bg-indigo-50 text-indigo-600 border border-indigo-200 py-2 rounded text-xs font-bold hover:bg-indigo-100 transition"
+                        >
+                            👇 GRAB INFO FROM PAGE
+                        </button>
+                    </div>
+
                     {/* Inputs Section */}
                     <div className="space-y-2">
                         <div>
@@ -87,10 +160,60 @@ export const ListingCard: React.FC<Props> = ({ listing, onUpdate, onDelete }) =>
                         </div>
                     </div>
 
-                    {/* Generate Button (Mock for now) */}
-                    <button className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white py-2 rounded text-xs font-bold hover:bg-slate-800 transition">
-                        <Sparkles size={14} className="text-yellow-400" />
-                        GENERATE METADATA
+                    <button
+                        onClick={handleGenerate}
+                        disabled={isGenerating}
+                        className={`w-full flex items-center justify-center gap-2 py-2 rounded text-xs font-bold transition text-white
+    ${isGenerating ? 'bg-gray-400 cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-800'}`}
+                    >
+                        {isGenerating ? (
+                            <span>Generating...</span>
+                        ) : (
+                            <>
+                                <Sparkles size={14} className="text-yellow-400" />
+                                GENERATE METADATA
+                            </>
+                        )}
+                    </button>
+
+                    {/* Display Results if they exist */}
+                    {listing.generatedData.title && (
+                        <div className="mt-3 space-y-2 bg-green-50 p-3 rounded border border-green-100">
+                            <div>
+                                <label className="text-[10px] font-bold text-green-700">GENERATED TITLE</label>
+                                <input
+                                    className="w-full text-xs p-1 border rounded"
+                                    value={listing.generatedData.title}
+                                    onChange={(e) => onUpdate(listing.id, { generatedData: { ...listing.generatedData, title: e.target.value } })}
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-green-700">GENERATED TAGS</label>
+                                <textarea
+                                    className="w-full text-xs p-1 border rounded"
+                                    rows={3}
+                                    value={listing.generatedData.tags}
+                                    onChange={(e) => onUpdate(listing.id, { generatedData: { ...listing.generatedData, tags: e.target.value } })}
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-green-700">GENERATED DESC</label>
+                                <textarea
+                                    className="w-full text-xs p-1 border rounded"
+                                    rows={3}
+                                    value={listing.generatedData.description}
+                                    onChange={(e) => onUpdate(listing.id, { generatedData: { ...listing.generatedData, description: e.target.value } })}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Add Autofill Button at the bottom */}
+                    <button
+                        onClick={handleAutofill}
+                        className="w-full mt-2 flex items-center justify-center gap-2 bg-red-500 text-white py-2 rounded text-xs font-bold hover:bg-red-600 transition"
+                    >
+                        🚀 AUTOFILL REDBUBBLE
                     </button>
 
                 </div>

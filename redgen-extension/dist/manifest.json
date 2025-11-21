@@ -12,6 +12,22 @@
     "host_permissions": [
         "https://www.redbubble.com/*"
     ],
+    "icons": {
+        "16": "icon-16.png",
+        "48": "icon-48.png",
+        "128": "icon-128.png"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://www.redbubble.com/*"
+            ],
+            "js": [
+                "assets/content.js"
+            ],
+            "run_at": "document_end"
+        }
+    ],
     "background": {
         "service_worker": "service-worker.js"
     },
@@ -19,6 +35,11 @@
         "default_path": "index.html"
     },
     "action": {
-        "default_title": "Open RedGen"
+        "default_title": "Open RedGen",
+        "default_icon": {
+            "16": "icon-16.png",
+            "48": "icon-48.png",
+            "128": "icon-128.png"
+        }
     }
 }

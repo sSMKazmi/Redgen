@@ -53,6 +53,7 @@ function App() {
                         <ListingCard
                             key={listing.id}
                             listing={listing}
+                            settings={settings} // <--- ADD THIS LINE
                             onUpdate={updateListing}
                             onDelete={deleteListing}
                         />
