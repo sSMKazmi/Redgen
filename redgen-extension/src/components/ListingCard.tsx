@@ -283,8 +283,12 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
                                     <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex justify-between">
                                         <span>Active Tags</span>
                                         <span className="flex gap-2 text-[9px] font-normal">
-                                            <span className="text-red-600 flex items-center gap-0.5"><ShieldAlert size={8} /> Risk 5</span>
-                                            <span className="text-emerald-600 flex items-center gap-0.5"><ShieldCheck size={8} /> Safe 1</span>
+                                            <span className="text-red-600 flex items-center gap-0.5">
+                                                <ShieldAlert size={8} /> {listing.generatedData.tags.filter(t => t.riskScore >= 3).length} Risk
+                                            </span>
+                                            <span className="text-emerald-600 flex items-center gap-0.5">
+                                                <ShieldCheck size={8} /> {listing.generatedData.tags.filter(t => t.riskScore < 3).length} Safe
+                                            </span>
                                         </span>
                                     </label>
 
