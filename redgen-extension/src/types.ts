@@ -1,27 +1,26 @@
-// src/types.ts
+export interface TagItem {
+    text: string;
+    risk: 'safe' | 'caution' | 'danger';
+}
 
 export interface Listing {
     id: string;
     createdAt: number;
     title: string;
-
     imagePreview: string | null;
 
-    // User Inputs for this specific listing
-    customContext: string; // e.g., "Make it spooky"
-    preservedTags: string;
+    customContext: string;
+    preservedTags: string; // Comma separated string (User manages these manually)
 
-    // Tab 1: What we grabbed
     scrapedData: {
         title: string;
-        tags: string;
+        tags: string; // Original scraped string
         description: string;
     };
 
-    // Tab 2: What AI made (The output)
     generatedData: {
         title: string;
-        tags: string;
+        tags: TagItem[]; // <--- CHANGED to Rich Objects
         description: string;
     };
 
@@ -30,7 +29,6 @@ export interface Listing {
 
 export interface AppSettings {
     apiKey: string;
-    // The Master Prompts
     titlePrompt: string;
     tagsPrompt: string;
     descPrompt: string;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { generateMetadata } from '../utils/gemini-api';
-import { Listing, AppSettings } from '../types';
-import { Trash2, ChevronDown, ChevronUp, Sparkles, Upload, Download, GripHorizontal, X, Plus } from 'lucide-react';
+import { generateMetadata, OptimizedResult } from '../utils/gemini-api';
+import { Listing, AppSettings, TagItem } from '../types';
+import { Trash2, ChevronDown, ChevronUp, Sparkles, Upload, Download, GripHorizontal, X, Plus, AlertTriangle, ShieldCheck, ShieldAlert } from 'lucide-react';
 
 interface Props {
     listing: Listing;
@@ -14,95 +14,83 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
     const [activeTab, setActiveTab] = useState<'original' | 'optimized'>('optimized');
     const [isGenerating, setIsGenerating] = useState(false);
 
-    // Temporary input state for adding tags
+    // Temporary inputs
     const [newTagInput, setNewTagInput] = useState('');
     const [newPreservedInput, setNewPreservedInput] = useState('');
 
-    // --- SYNC LOGIC ---
+    // --- SYNC & INIT LOGIC ---
     useEffect(() => {
-        // Initialize optimized data with scraped data if empty, so user isn't staring at blanks
+        // If optimized data is empty/fresh, convert scraped string to tag objects
         if (!listing.generatedData.title && listing.scrapedData.title) {
-            onUpdate(listing.id, { generatedData: listing.scrapedData });
+            const initialTags: TagItem[] = listing.scrapedData.tags
+                ? listing.scrapedData.tags.split(',').map(t => ({ text: t.trim(), risk: 'safe' }))
+                : [];
+
+            onUpdate(listing.id, {
+                generatedData: {
+                    title: listing.scrapedData.title,
+                    description: listing.scrapedData.description,
+                    tags: initialTags
+                }
+            });
         }
     }, [listing.scrapedData]);
 
     // --- HELPERS ---
-    const currentData = activeTab === 'optimized' ? listing.generatedData : listing.scrapedData;
-    // We only allow editing fields if we are in the 'optimized' tab
     const isEditable = activeTab === 'optimized';
 
-    // Update helper
-    const updateField = (field: 'title' | 'tags' | 'description', value: string) => {
-        // Always update generatedData, regardless of tab, because Original is Read-Only reference
-        onUpdate(listing.id, { generatedData: { ...listing.generatedData, [field]: value } });
+    // --- TAG MANAGER LOGIC (STRICT & COLORFUL) ---
+
+    const parsePreserved = (str: string) => str.split(',').map(t => t.trim()).filter(Boolean);
+
+    // Helper to get color based on risk
+    const getTagColor = (risk?: 'safe' | 'caution' | 'danger') => {
+        switch (risk) {
+            case 'danger': return 'bg-red-100 text-red-700 border-red-200 hover:bg-red-200';
+            case 'caution': return 'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100';
+            default: return 'bg-white text-slate-700 border-slate-300 hover:border-slate-400';
+        }
     };
 
-    // --- TAG MANAGER LOGIC (Strict Uniqueness) ---
-    const parseTags = (tagStr: string) => tagStr.split(',').map(t => t.trim()).filter(Boolean);
+    const addTag = (tagText: string, target: 'main' | 'preserved', risk: 'safe' | 'caution' | 'danger' = 'safe') => {
+        const cleanTag = tagText.trim();
+        if (!cleanTag) return;
 
-    const updateTags = (main: string[], preserved: string[]) => {
+        let mainTags = [...listing.generatedData.tags];
+        let preservedTags = parsePreserved(listing.preservedTags);
+
+        // 1. STRICT REMOVAL: Remove from BOTH lists first
+        mainTags = mainTags.filter(t => t.text !== cleanTag);
+        preservedTags = preservedTags.filter(t => t !== cleanTag);
+
+        // 2. ADD TO TARGET
+        if (target === 'main') {
+            mainTags.push({ text: cleanTag, risk });
+        } else {
+            preservedTags.push(cleanTag);
+        }
+
+        // 3. UPDATE STATE
         onUpdate(listing.id, {
-            generatedData: { ...listing.generatedData, tags: main.join(', ') },
-            preservedTags: preserved.join(', ')
+            generatedData: { ...listing.generatedData, tags: mainTags },
+            preservedTags: preservedTags.join(', ')
         });
     };
 
-    const addTag = (tag: string, target: 'main' | 'preserved') => {
-        const cleanTag = tag.trim();
-        if (!cleanTag) return;
+    const removeTag = (tagText: string) => {
+        const mainTags = listing.generatedData.tags.filter(t => t.text !== tagText);
+        const preservedTags = parsePreserved(listing.preservedTags).filter(t => t !== tagText);
 
-        let mainTags = parseTags(listing.generatedData.tags);
-        let preservedTags = parseTags(listing.preservedTags);
-
-        // 1. Remove from BOTH lists first (Enforce Uniqueness / Move Logic)
-        mainTags = mainTags.filter(t => t !== cleanTag);
-        preservedTags = preservedTags.filter(t => t !== cleanTag);
-
-        // 2. Add to Target
-        if (target === 'main') mainTags.push(cleanTag);
-        else preservedTags.push(cleanTag);
-
-        updateTags(mainTags, preservedTags);
+        onUpdate(listing.id, {
+            generatedData: { ...listing.generatedData, tags: mainTags },
+            preservedTags: preservedTags.join(', ')
+        });
     };
 
-    const removeTag = (tag: string) => {
-        // Just filter it out from both to be safe
-        const mainTags = parseTags(listing.generatedData.tags).filter(t => t !== tag);
-        const preservedTags = parseTags(listing.preservedTags).filter(t => t !== tag);
-        updateTags(mainTags, preservedTags);
-    };
-
-    const handleTagDrop = (tag: string, target: 'main' | 'preserved') => {
-        // Same logic as addTag: remove from both, add to target
-        addTag(tag, target);
-    };
-
-    // --- DOWNLOAD FIX ---
-    const handleDownloadImage = async (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!listing.imagePreview) return;
-
-        try {
-            // Fetch blob to bypass cross-origin download restrictions
-            const response = await fetch(listing.imagePreview);
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `${listing.title || 'redgen-design'}.png`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-        } catch (err) {
-            console.error("Download failed", err);
-            // Fallback for Base64 strings
-            const link = document.createElement('a');
-            link.href = listing.imagePreview;
-            link.download = `${listing.title || 'redgen-design'}.png`;
-            link.click();
-        }
+    const handleTagDrop = (tagText: string, target: 'main' | 'preserved') => {
+        // Find existing risk if moving from main to preserved and back, or default to safe
+        const existing = listing.generatedData.tags.find(t => t.text === tagText);
+        addTag(tagText, target, existing?.risk || 'safe');
     };
 
     // --- API HANDLERS ---
@@ -111,9 +99,12 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
         if (!tab.id) return;
         chrome.tabs.sendMessage(tab.id, { type: 'SCRAPE_PAGE' }, (response) => {
             if (response && response.success) {
+                // Convert scraped string tags to objects
+                const scrapedTagObjects: TagItem[] = response.data.tags.split(',').map((t: string) => ({ text: t.trim(), risk: 'safe' }));
+
                 onUpdate(listing.id, {
                     scrapedData: response.data,
-                    generatedData: response.data,
+                    generatedData: { ...response.data, tags: scrapedTagObjects },
                     title: response.data.title || "Scraped Product",
                     imagePreview: response.data.imagePreview
                 });
@@ -125,15 +116,18 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
         if (!settings.apiKey) return alert("Add API Key in Settings!");
         setIsGenerating(true);
         try {
-            // Always optimize using the Image + the DATA FROM THE ACTIVE INPUTS
-            // If user is in 'Original' tab, we optimize based on Scraped Data
-            // If user is in 'Optimized' tab, we re-optimize based on current edits
-            const sourceData = activeTab === 'optimized' ? listing.generatedData : listing.scrapedData;
+            // Format current data for API (convert object tags back to string for the prompt context)
+            const tagsString = listing.generatedData.tags.map(t => t.text).join(', ');
+            const apiInput = { ...listing.generatedData, tags: tagsString };
 
-            const result = await generateMetadata(settings, listing.imagePreview, sourceData);
+            let img = listing.imagePreview;
+            // Basic URL to Base64 logic would go here if needed, reusing existing preview
 
+            const result: OptimizedResult = await generateMetadata(settings, img, apiInput);
+
+            // Result comes back as { title, desc, tags: [{text, risk}, ...] }
             onUpdate(listing.id, { generatedData: result });
-            setActiveTab('optimized'); // Force switch to show results
+            setActiveTab('optimized');
         } catch (e: any) {
             alert("Error: " + e.message);
         } finally {
@@ -145,14 +139,40 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!tab.id) return;
 
-        // AUTOFILL RULE: Always use Optimized Data + Preserved Tags
-        const dataToFill = listing.generatedData;
-        const finalTags = [listing.preservedTags, dataToFill.tags].filter(Boolean).join(', ');
+        // Join Preserved + Active Tags for final output string
+        const activeTagStrings = listing.generatedData.tags.map(t => t.text);
+        const preservedList = parsePreserved(listing.preservedTags);
+        const finalTags = [...preservedList, ...activeTagStrings].filter(Boolean).join(', ');
 
-        chrome.tabs.sendMessage(tab.id, {
-            type: 'FILL_FORM',
-            payload: { ...dataToFill, tags: finalTags }
-        });
+        const payload = {
+            title: listing.generatedData.title,
+            description: listing.generatedData.description,
+            tags: finalTags
+        };
+
+        chrome.tabs.sendMessage(tab.id, { type: 'FILL_FORM', payload });
+    };
+
+    const handleDownloadImage = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!listing.imagePreview) return;
+        try {
+            const response = await fetch(listing.imagePreview);
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${listing.title || 'design'}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            const link = document.createElement('a');
+            link.href = listing.imagePreview;
+            link.download = `${listing.title || 'design'}.png`;
+            link.click();
+        }
     };
 
     return (
@@ -202,7 +222,7 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
                         </button>
                     </div>
 
-                    {/* MAIN INPUTS */}
+                    {/* MAIN FORM */}
                     <div className="space-y-4">
 
                         {/* Title */}
@@ -210,7 +230,8 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
                             <label className="text-[10px] font-bold text-slate-400 uppercase">Title</label>
                             <input className="w-full text-xs p-2 border rounded disabled:bg-slate-50 disabled:text-slate-500"
                                 disabled={!isEditable}
-                                value={currentData.title} onChange={e => updateField('title', e.target.value)} />
+                                value={isEditable ? listing.generatedData.title : listing.scrapedData.title}
+                                onChange={e => onUpdate(listing.id, { generatedData: { ...listing.generatedData, title: e.target.value } })} />
                         </div>
 
                         {/* Description */}
@@ -218,23 +239,24 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
                             <label className="text-[10px] font-bold text-slate-400 uppercase">Description</label>
                             <textarea className="w-full text-xs p-2 border rounded resize-none disabled:bg-slate-50 disabled:text-slate-500" rows={3}
                                 disabled={!isEditable}
-                                value={currentData.description} onChange={e => updateField('description', e.target.value)} />
+                                value={isEditable ? listing.generatedData.description : listing.scrapedData.description}
+                                onChange={e => onUpdate(listing.id, { generatedData: { ...listing.generatedData, description: e.target.value } })} />
                         </div>
 
-                        {/* TAG MANAGER (Interactive in Optimized, Read-Only in Original) */}
+                        {/* TAG MANAGER */}
                         {isEditable ? (
-                            <div className="space-y-2">
+                            <div className="space-y-3">
 
                                 {/* Preserved Zone */}
                                 <div className="bg-indigo-50 p-2 rounded border border-indigo-100"
                                     onDragOver={e => e.preventDefault()}
                                     onDrop={e => { const tag = e.dataTransfer.getData("tag"); if (tag) handleTagDrop(tag, 'preserved'); }}>
                                     <label className="text-[10px] font-bold text-indigo-600 uppercase mb-1 flex items-center gap-1">
-                                        🔒 Preserved Tags <span className="font-normal lowercase opacity-70">(Always first)</span>
+                                        <ShieldCheck size={10} /> Preserved Tags <span className="font-normal lowercase opacity-70">(First priority)</span>
                                     </label>
 
                                     <div className="flex flex-wrap gap-1">
-                                        {parseTags(listing.preservedTags).map(tag => (
+                                        {parsePreserved(listing.preservedTags).map(tag => (
                                             <span key={tag} draggable onDragStart={e => e.dataTransfer.setData("tag", tag)}
                                                 className="bg-white border border-indigo-200 text-indigo-700 text-[10px] px-2 py-1 rounded-full cursor-move flex items-center gap-1 hover:border-indigo-400 shadow-sm select-none">
                                                 <GripHorizontal size={8} className="opacity-50" /> {tag}
@@ -252,18 +274,24 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
                                     </div>
                                 </div>
 
-                                {/* Active Zone */}
+                                {/* Active Zone with Risk Colors */}
                                 <div className="bg-slate-50 p-2 rounded border border-slate-200"
                                     onDragOver={e => e.preventDefault()}
                                     onDrop={e => { const tag = e.dataTransfer.getData("tag"); if (tag) handleTagDrop(tag, 'main'); }}>
-                                    <label className="text-[10px] font-bold text-slate-500 uppercase mb-1">Active Tags</label>
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex justify-between">
+                                        <span>Active Tags</span>
+                                        <span className="flex gap-2 text-[9px] font-normal">
+                                            <span className="text-red-500 flex items-center gap-0.5"><ShieldAlert size={8} /> Risk</span>
+                                            <span className="text-yellow-600 flex items-center gap-0.5"><AlertTriangle size={8} /> Caution</span>
+                                        </span>
+                                    </label>
 
                                     <div className="flex flex-wrap gap-1">
-                                        {parseTags(currentData.tags).map(tag => (
-                                            <span key={tag} draggable onDragStart={e => e.dataTransfer.setData("tag", tag)}
-                                                className="bg-white border border-slate-300 text-slate-700 text-[10px] px-2 py-1 rounded-full cursor-move flex items-center gap-1 hover:border-slate-400 shadow-sm select-none">
-                                                <GripHorizontal size={8} className="opacity-50" /> {tag}
-                                                <button onClick={() => removeTag(tag)} className="hover:text-red-500"><X size={10} /></button>
+                                        {listing.generatedData.tags.map(tagObj => (
+                                            <span key={tagObj.text} draggable onDragStart={e => e.dataTransfer.setData("tag", tagObj.text)}
+                                                className={`${getTagColor(tagObj.risk)} border text-[10px] px-2 py-1 rounded-full cursor-move flex items-center gap-1 shadow-sm select-none transition-colors`}>
+                                                <GripHorizontal size={8} className="opacity-50" /> {tagObj.text}
+                                                <button onClick={() => removeTag(tagObj.text)} className="hover:text-red-600 opacity-60 hover:opacity-100"><X size={10} /></button>
                                             </span>
                                         ))}
                                         <div className="flex items-center gap-1 bg-white/50 border border-transparent hover:border-slate-300 rounded px-1">
@@ -283,7 +311,7 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
                             <div>
                                 <label className="text-[10px] font-bold text-slate-400 uppercase">Original Tags</label>
                                 <div className="p-2 bg-slate-50 border border-dashed border-slate-300 rounded text-xs text-slate-500 italic leading-relaxed">
-                                    {currentData.tags || "No tags grabbed."}
+                                    {listing.scrapedData.tags || "No tags grabbed."}
                                 </div>
                             </div>
                         )}

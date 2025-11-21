@@ -1,36 +1,55 @@
-// src/utils/gemini-api.ts
 import { AppSettings } from '../types';
 
 const cleanBase64 = (dataUrl: string) => dataUrl.split(',')[1];
 
+// Enhanced return type for risk analysis
+export interface OptimizedResult {
+    title: string;
+    description: string;
+    tags: { text: string; risk: 'safe' | 'caution' | 'danger' }[];
+}
+
 export const generateMetadata = async (
-    settings: AppSettings, // Receive full settings
+    settings: AppSettings,
     imageBase64: string | null,
     currentData: { title: string; tags: string; description: string }
-) => {
+): Promise<OptimizedResult> => {
 
     if (!settings.apiKey) throw new Error("Missing API Key");
 
-    // Use Master Prompts or Fallbacks
     const pTitle = settings.titlePrompt || "Optimize for SEO.";
     const pTags = settings.tagsPrompt || "15-20 relevant tags.";
     const pDesc = settings.descPrompt || "Persuasive description.";
 
+    // --- THE TRADEMARK & SEO MASTER PROMPT ---
     const promptText = `
-    You are a Print-on-Demand SEO Expert.
+    ROLE: You are an expert Print-on-Demand SEO Specialist AND a strict Trademark Compliance Officer for Redbubble.
     
     INPUT DATA:
     - Title: ${currentData.title}
     - Tags: ${currentData.tags}
     - Description: ${currentData.description}
     
-    YOUR INSTRUCTIONS:
+    USER INSTRUCTIONS:
     1. TITLE: ${pTitle}
     2. TAGS: ${pTags}
     3. DESCRIPTION: ${pDesc}
     
-    OUTPUT JSON FORMAT:
-    { "title": "...", "tags": "tag1, tag2, tag3", "description": "..." }
+    CRITICAL TRADEMARK SAFETY RULES (Analyze every tag):
+    - DANGER (Red): Famous Brands (Nike, Disney), Character Names (Yoda, Mario), Celebrity Names (Taylor Swift), Band Names, Song Lyrics, Movie Titles.
+    - CAUTION (Yellow): Broad pop culture references, borderline terms (e.g., "inspired by", "parody"), ambiguous terms.
+    - SAFE (Green): Generic descriptive words (retro, sunset, cat, funny, aesthetic, vintage).
+
+    OUTPUT FORMAT (Strict JSON):
+    {
+      "title": "Optimized Title Here",
+      "description": "Optimized Description Here",
+      "tags": [
+        { "text": "tag1", "risk": "safe" },
+        { "text": "tag2", "risk": "caution" },
+        { "text": "tag3", "risk": "danger" }
+      ]
+    }
   `;
 
     const parts: any[] = [{ text: promptText }];
@@ -45,7 +64,7 @@ export const generateMetadata = async (
     }
 
     const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${settings.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${settings.apiKey}`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
