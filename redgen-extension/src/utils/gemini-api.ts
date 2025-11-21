@@ -6,7 +6,7 @@ const cleanBase64 = (dataUrl: string) => dataUrl.split(',')[1];
 export interface OptimizedResult {
     title: string;
     description: string;
-    tags: { text: string; risk: 'safe' | 'caution' | 'danger' }[];
+    tags: { text: string; riskScore: number }[];
 }
 
 export const generateMetadata = async (
@@ -35,19 +35,21 @@ export const generateMetadata = async (
     2. TAGS: ${pTags}
     3. DESCRIPTION: ${pDesc}
     
-    CRITICAL TRADEMARK SAFETY RULES (Analyze every tag):
-    - DANGER (Red): Famous Brands (Nike, Disney), Character Names (Yoda, Mario), Celebrity Names (Taylor Swift), Band Names, Song Lyrics, Movie Titles.
-    - CAUTION (Yellow): Broad pop culture references, borderline terms (e.g., "inspired by", "parody"), ambiguous terms.
-    - SAFE (Green): Generic descriptive words (retro, sunset, cat, funny, aesthetic, vintage).
+    CRITICAL TRADEMARK SAFETY RULES (Analyze every tag and assign a Risk Score 1-5):
+    - 5 (DANGER - RED): Famous Brands (Nike, Disney), Character Names (Yoda, Mario), Celebrity Names, Song Lyrics, Movie Titles.
+    - 4 (HIGH RISK - ORANGE): Specific fictional locations, borderline trademarks, very specific fandom terms.
+    - 3 (CAUTION - YELLOW): Broad pop culture references, parodies, "inspired by" terms, ambiguous words.
+    - 2 (LOW RISK - LIME): Common phrases that might have weak claims, broad artistic styles.
+    - 1 (SAFE - GREEN): Generic descriptive words (retro, sunset, cat, funny, aesthetic, vintage, blue, cute).
 
     OUTPUT FORMAT (Strict JSON):
     {
       "title": "Optimized Title Here",
       "description": "Optimized Description Here",
       "tags": [
-        { "text": "tag1", "risk": "safe" },
-        { "text": "tag2", "risk": "caution" },
-        { "text": "tag3", "risk": "danger" }
+        { "text": "tag1", "riskScore": 1 },
+        { "text": "tag2", "riskScore": 3 },
+        { "text": "tag3", "riskScore": 5 }
       ]
     }
   `;

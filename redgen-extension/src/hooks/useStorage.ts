@@ -9,10 +9,23 @@ export const useStorage = () => {
     useEffect(() => {
         chrome.storage.local.get(['listings', 'settings'], (result) => {
             if (result.listings) {
-                // MIGRATION: Fix old string tags to object tags
+                // MIGRATION: Fix old string tags to object tags AND migrate 'risk' string to 'riskScore' number
                 const migratedListings = result.listings.map((l: any) => {
+                    // Case 1: Tags are just a string (Oldest version)
                     if (typeof l.generatedData.tags === 'string') {
-                        l.generatedData.tags = l.generatedData.tags.split(',').filter(Boolean).map((t: string) => ({ text: t.trim(), risk: 'safe' }));
+                        l.generatedData.tags = l.generatedData.tags.split(',').filter(Boolean).map((t: string) => ({ text: t.trim(), riskScore: 1 }));
+                    }
+                    // Case 2: Tags are objects but have 'risk' string (Previous version)
+                    else if (Array.isArray(l.generatedData.tags)) {
+                        l.generatedData.tags = l.generatedData.tags.map((t: any) => {
+                            if (t.riskScore !== undefined) return t; // Already migrated
+
+                            let score = 1;
+                            if (t.risk === 'danger') score = 5;
+                            else if (t.risk === 'caution') score = 3;
+
+                            return { text: t.text, riskScore: score };
+                        });
                     }
                     return l;
                 });

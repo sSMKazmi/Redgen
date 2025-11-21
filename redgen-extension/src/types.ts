@@ -1,6 +1,6 @@
 export interface TagItem {
     text: string;
-    risk: 'safe' | 'caution' | 'danger';
+    riskScore: number; // 1 (Safe) to 5 (Danger)
 }
 
 export interface Listing {

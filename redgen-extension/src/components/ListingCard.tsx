@@ -23,7 +23,7 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
         // If optimized data is empty/fresh, convert scraped string to tag objects
         if (!listing.generatedData.title && listing.scrapedData.title) {
             const initialTags: TagItem[] = listing.scrapedData.tags
-                ? listing.scrapedData.tags.split(',').map(t => ({ text: t.trim(), risk: 'safe' }))
+                ? listing.scrapedData.tags.split(',').map(t => ({ text: t.trim(), riskScore: 1 }))
                 : [];
 
             onUpdate(listing.id, {
@@ -43,16 +43,19 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
 
     const parsePreserved = (str: string) => str.split(',').map(t => t.trim()).filter(Boolean);
 
-    // Helper to get color based on risk
-    const getTagColor = (risk?: 'safe' | 'caution' | 'danger') => {
-        switch (risk) {
-            case 'danger': return 'bg-red-100 text-red-700 border-red-200 hover:bg-red-200';
-            case 'caution': return 'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100';
-            default: return 'bg-white text-slate-700 border-slate-300 hover:border-slate-400';
+    // Helper to get color based on risk score (1-5)
+    const getTagColor = (score: number) => {
+        switch (score) {
+            case 5: return 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200'; // Danger
+            case 4: return 'bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200'; // High Risk
+            case 3: return 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200'; // Caution
+            case 2: return 'bg-lime-100 text-lime-800 border-lime-200 hover:bg-lime-200'; // Low Risk
+            case 1:
+            default: return 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'; // Safe
         }
     };
 
-    const addTag = (tagText: string, target: 'main' | 'preserved', risk: 'safe' | 'caution' | 'danger' = 'safe') => {
+    const addTag = (tagText: string, target: 'main' | 'preserved', riskScore: number = 1) => {
         const cleanTag = tagText.trim();
         if (!cleanTag) return;
 
@@ -65,7 +68,7 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
 
         // 2. ADD TO TARGET
         if (target === 'main') {
-            mainTags.push({ text: cleanTag, risk });
+            mainTags.push({ text: cleanTag, riskScore });
         } else {
             preservedTags.push(cleanTag);
         }
@@ -88,9 +91,9 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
     };
 
     const handleTagDrop = (tagText: string, target: 'main' | 'preserved') => {
-        // Find existing risk if moving from main to preserved and back, or default to safe
+        // Find existing risk if moving from main to preserved and back, or default to safe (1)
         const existing = listing.generatedData.tags.find(t => t.text === tagText);
-        addTag(tagText, target, existing?.risk || 'safe');
+        addTag(tagText, target, existing?.riskScore || 1);
     };
 
     // --- API HANDLERS ---
@@ -99,8 +102,8 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
         if (!tab.id) return;
         chrome.tabs.sendMessage(tab.id, { type: 'SCRAPE_PAGE' }, (response) => {
             if (response && response.success) {
-                // Convert scraped string tags to objects
-                const scrapedTagObjects: TagItem[] = response.data.tags.split(',').map((t: string) => ({ text: t.trim(), risk: 'safe' }));
+                // Convert scraped string tags to objects (Default risk 1)
+                const scrapedTagObjects: TagItem[] = response.data.tags.split(',').map((t: string) => ({ text: t.trim(), riskScore: 1 }));
 
                 onUpdate(listing.id, {
                     scrapedData: response.data,
@@ -121,11 +124,10 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
             const apiInput = { ...listing.generatedData, tags: tagsString };
 
             let img = listing.imagePreview;
-            // Basic URL to Base64 logic would go here if needed, reusing existing preview
 
             const result: OptimizedResult = await generateMetadata(settings, img, apiInput);
 
-            // Result comes back as { title, desc, tags: [{text, risk}, ...] }
+            // Result comes back as { title, desc, tags: [{text, riskScore}, ...] }
             onUpdate(listing.id, { generatedData: result });
             setActiveTab('optimized');
         } catch (e: any) {
@@ -281,15 +283,15 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
                                     <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex justify-between">
                                         <span>Active Tags</span>
                                         <span className="flex gap-2 text-[9px] font-normal">
-                                            <span className="text-red-500 flex items-center gap-0.5"><ShieldAlert size={8} /> Risk</span>
-                                            <span className="text-yellow-600 flex items-center gap-0.5"><AlertTriangle size={8} /> Caution</span>
+                                            <span className="text-red-600 flex items-center gap-0.5"><ShieldAlert size={8} /> Risk 5</span>
+                                            <span className="text-emerald-600 flex items-center gap-0.5"><ShieldCheck size={8} /> Safe 1</span>
                                         </span>
                                     </label>
 
                                     <div className="flex flex-wrap gap-1">
                                         {listing.generatedData.tags.map(tagObj => (
                                             <span key={tagObj.text} draggable onDragStart={e => e.dataTransfer.setData("tag", tagObj.text)}
-                                                className={`${getTagColor(tagObj.risk)} border text-[10px] px-2 py-1 rounded-full cursor-move flex items-center gap-1 shadow-sm select-none transition-colors`}>
+                                                className={`${getTagColor(tagObj.riskScore)} border text-[10px] px-2 py-1 rounded-full cursor-move flex items-center gap-1 shadow-sm select-none transition-colors`}>
                                                 <GripHorizontal size={8} className="opacity-50" /> {tagObj.text}
                                                 <button onClick={() => removeTag(tagObj.text)} className="hover:text-red-600 opacity-60 hover:opacity-100"><X size={10} /></button>
                                             </span>
