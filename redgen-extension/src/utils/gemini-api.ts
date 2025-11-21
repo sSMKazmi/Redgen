@@ -64,7 +64,7 @@ export const generateMetadata = async (
     }
 
     const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${settings.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${settings.apiKey}`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -72,9 +72,17 @@ export const generateMetadata = async (
         }
     );
 
-    if (!response.ok) throw new Error("Gemini API Error");
+    if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Gemini API Error (${response.status}): ${errorBody}`);
+    }
 
     const data = await response.json();
+
+    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+        throw new Error("Gemini returned no content. It might have been blocked by safety filters.");
+    }
+
     const rawText = data.candidates[0].content.parts[0].text;
     const jsonString = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
 
