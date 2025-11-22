@@ -53,14 +53,26 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
     };
 
     const addTag = (tagText: string, target: 'main' | 'preserved', riskScore: number = 1) => {
-        const cleanTag = tagText.trim();
-        if (!cleanTag) return;
-        let mainTags = [...listing.generatedData.tags];
+        const tagsToAdd = tagText.split(',').map(t => t.trim()).filter(Boolean);
+        if (tagsToAdd.length === 0) return;
+
+        let mainTags = Array.isArray(listing.generatedData.tags) ? [...listing.generatedData.tags] : [];
         let preservedTags = parsePreserved(listing.preservedTags);
-        mainTags = mainTags.filter(t => t.text !== cleanTag);
-        preservedTags = preservedTags.filter(t => t !== cleanTag);
-        if (target === 'main') mainTags.push({ text: cleanTag, riskScore });
-        else preservedTags.push(cleanTag);
+
+        tagsToAdd.forEach(cleanTag => {
+            // 1. STRICT REMOVAL: Remove from BOTH lists first
+            mainTags = mainTags.filter(t => t.text !== cleanTag);
+            preservedTags = preservedTags.filter(t => t !== cleanTag);
+
+            // 2. ADD TO TARGET
+            if (target === 'main') {
+                mainTags.push({ text: cleanTag, riskScore });
+            } else {
+                preservedTags.push(cleanTag);
+            }
+        });
+
+        // 3. UPDATE STATE
         onUpdate(listing.id, {
             generatedData: { ...listing.generatedData, tags: mainTags },
             preservedTags: preservedTags.join(', ')
@@ -68,7 +80,8 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
     };
 
     const removeTag = (tagText: string) => {
-        const mainTags = listing.generatedData.tags.filter(t => t.text !== tagText);
+        const currentTags = Array.isArray(listing.generatedData.tags) ? listing.generatedData.tags : [];
+        const mainTags = currentTags.filter(t => t.text !== tagText);
         const preservedTags = parsePreserved(listing.preservedTags).filter(t => t !== tagText);
         onUpdate(listing.id, {
             generatedData: { ...listing.generatedData, tags: mainTags },
@@ -77,7 +90,8 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
     };
 
     const handleTagDrop = (tagText: string, target: 'main' | 'preserved') => {
-        const existing = listing.generatedData.tags.find(t => t.text === tagText);
+        const currentTags = Array.isArray(listing.generatedData.tags) ? listing.generatedData.tags : [];
+        const existing = currentTags.find(t => t.text === tagText);
         addTag(tagText, target, existing?.riskScore || 1);
     };
 
@@ -148,7 +162,8 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
         if (!settings.apiKey) return alert("Add API Key in Settings!");
         setIsGenerating(true);
         try {
-            const tagsString = listing.generatedData.tags.map(t => t.text).join(', ');
+            const currentTags = Array.isArray(listing.generatedData.tags) ? listing.generatedData.tags : [];
+            const tagsString = currentTags.map(t => t.text).join(', ');
             const apiInput = { ...listing.generatedData, tags: tagsString };
 
             // Use first image for AI context if available
@@ -167,7 +182,8 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
     const handleAutofill = async () => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!tab.id) return;
-        const activeTagStrings = listing.generatedData.tags.map(t => t.text);
+        const currentTags = Array.isArray(listing.generatedData.tags) ? listing.generatedData.tags : [];
+        const activeTagStrings = currentTags.map(t => t.text);
         const preservedList = parsePreserved(listing.preservedTags);
         const finalTags = [...preservedList, ...activeTagStrings].filter(Boolean).join(', ');
         const payload = {
@@ -310,16 +326,16 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
                                         <span>Active Tags</span>
                                         <span className="flex gap-2 text-[9px] font-normal">
                                             <span className="text-red-600 flex items-center gap-0.5">
-                                                <ShieldAlert size={8} /> {listing.generatedData.tags.filter(t => t.riskScore >= 3).length} Risk
+                                                <ShieldAlert size={8} /> {Array.isArray(listing.generatedData.tags) ? listing.generatedData.tags.filter(t => t.riskScore >= 3).length : 0} Risk
                                             </span>
                                             <span className="text-emerald-600 flex items-center gap-0.5">
-                                                <ShieldCheck size={8} /> {listing.generatedData.tags.filter(t => t.riskScore < 3).length} Safe
+                                                <ShieldCheck size={8} /> {Array.isArray(listing.generatedData.tags) ? listing.generatedData.tags.filter(t => t.riskScore < 3).length : 0} Safe
                                             </span>
                                         </span>
                                     </label>
 
                                     <div className="flex flex-wrap gap-1">
-                                        {listing.generatedData.tags.map(tagObj => (
+                                        {Array.isArray(listing.generatedData.tags) && listing.generatedData.tags.map(tagObj => (
                                             <span key={tagObj.text} draggable onDragStart={e => e.dataTransfer.setData("tag", tagObj.text)}
                                                 className={`${getTagColor(tagObj.riskScore)} border text-[10px] px-2 py-1 rounded-full cursor-move flex items-center gap-1 shadow-sm select-none transition-colors`}>
                                                 <GripHorizontal size={8} className="opacity-50" /> {tagObj.text}

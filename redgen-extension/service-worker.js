@@ -10,6 +10,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.storage.local.get(['listings'], (result) => {
             const listings = result.listings || [];
 
+            // Convert tags string to array immediately
+            const tagsArray = message.payload.tags
+                ? message.payload.tags.split(',').map(t => ({ text: t.trim(), riskScore: 1 }))
+                : [];
+
             const newListing = {
                 id: crypto.randomUUID(),
                 createdAt: Date.now(),
@@ -21,7 +26,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 customContext: "",
                 preservedTags: "",
                 scrapedData: message.payload,
-                generatedData: message.payload,
+                generatedData: {
+                    ...message.payload,
+                    tags: tagsArray // Save as Array!
+                },
                 isExpanded: true
             };
 
