@@ -120,15 +120,32 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
     const handleCopyImage = async (url: string, index: number) => {
         try {
             setCopyStatus({ index, status: 'copying' });
+
+            // 1. Fetch the image
             const response = await fetch(url);
             const blob = await response.blob();
 
-            // Clipboard API requires specific types (usually PNG)
-            // If it's not PNG, we might need canvas conversion, but browsers are getting better.
-            // Let's try direct write first.
+            // 2. Create an ImageBitmap from the blob
+            const imageBitmap = await createImageBitmap(blob);
+
+            // 3. Draw to an offscreen canvas to convert to PNG
+            const canvas = document.createElement('canvas');
+            canvas.width = imageBitmap.width;
+            canvas.height = imageBitmap.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error("Could not get canvas context");
+
+            ctx.drawImage(imageBitmap, 0, 0);
+
+            // 4. Get PNG Blob
+            const pngBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+
+            if (!pngBlob) throw new Error("Could not convert to PNG");
+
+            // 5. Write PNG to Clipboard
             await navigator.clipboard.write([
                 new ClipboardItem({
-                    [blob.type]: blob
+                    [pngBlob.type]: pngBlob
                 })
             ]);
 
