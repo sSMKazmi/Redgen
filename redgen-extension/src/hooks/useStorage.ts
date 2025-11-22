@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Listing, AppSettings, TagItem } from '../types';
+import { Listing, AppSettings } from '../types';
 
 export const useStorage = () => {
     const [listings, setListings] = useState<Listing[]>([]);
@@ -9,24 +9,27 @@ export const useStorage = () => {
     useEffect(() => {
         chrome.storage.local.get(['listings', 'settings'], (result) => {
             if (result.listings) {
-                // MIGRATION: Fix old string tags to object tags AND migrate 'risk' string to 'riskScore' number
                 const migratedListings = result.listings.map((l: any) => {
-                    // Case 1: Tags are just a string (Oldest version)
+                    // 1. Migrate Tags (String -> Object)
                     if (typeof l.generatedData.tags === 'string') {
                         l.generatedData.tags = l.generatedData.tags.split(',').filter(Boolean).map((t: string) => ({ text: t.trim(), riskScore: 1 }));
                     }
-                    // Case 2: Tags are objects but have 'risk' string (Previous version)
+                    // 2. Migrate Risk Score (String -> Number)
                     else if (Array.isArray(l.generatedData.tags)) {
                         l.generatedData.tags = l.generatedData.tags.map((t: any) => {
-                            if (t.riskScore !== undefined) return t; // Already migrated
-
+                            if (t.riskScore !== undefined) return t;
                             let score = 1;
                             if (t.risk === 'danger') score = 5;
                             else if (t.risk === 'caution') score = 3;
-
                             return { text: t.text, riskScore: score };
                         });
                     }
+
+                    // 3. MIGRATE IMAGES (Single String -> Array)
+                    if (!l.images) {
+                        l.images = l.imagePreview ? [l.imagePreview] : [];
+                    }
+
                     return l;
                 });
                 setListings(migratedListings);
@@ -51,11 +54,11 @@ export const useStorage = () => {
             id: crypto.randomUUID(),
             createdAt: Date.now(),
             title: 'New Design Project',
-            imagePreview: null,
+            images: [], // New Array
             customContext: '',
             preservedTags: '',
             scrapedData: { title: '', tags: '', description: '' },
-            generatedData: { title: '', tags: [], description: '' }, // Empty array for tags
+            generatedData: { title: '', tags: [], description: '' },
             isExpanded: true
         };
         saveListings([newListing, ...listings]);

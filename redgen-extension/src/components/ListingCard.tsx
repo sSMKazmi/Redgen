@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { generateMetadata, OptimizedResult } from '../utils/gemini-api';
 import { Listing, AppSettings, TagItem } from '../types';
-import { Trash2, ChevronDown, ChevronUp, Sparkles, Upload, Download, GripHorizontal, X, Plus, AlertTriangle, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { Trash2, ChevronDown, ChevronUp, Sparkles, Upload, Download, GripHorizontal, X, Plus, Copy, Check, ShieldCheck, ShieldAlert } from 'lucide-react';
 
 interface Props {
     listing: Listing;
@@ -14,13 +14,15 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
     const [activeTab, setActiveTab] = useState<'original' | 'optimized'>('optimized');
     const [isGenerating, setIsGenerating] = useState(false);
 
+    // UI States for Copy Feedback
+    const [copyStatus, setCopyStatus] = useState<{ index: number, status: 'idle' | 'copying' | 'success' }>({ index: -1, status: 'idle' });
+
     // Temporary inputs
     const [newTagInput, setNewTagInput] = useState('');
     const [newPreservedInput, setNewPreservedInput] = useState('');
 
     // --- SYNC & INIT LOGIC ---
     useEffect(() => {
-        // If optimized data is empty/fresh, convert scraped string to tag objects
         if (!listing.generatedData.title && listing.scrapedData.title) {
             const initialTags: TagItem[] = listing.scrapedData.tags
                 ? listing.scrapedData.tags.split(',').map(t => ({ text: t.trim(), riskScore: 1 }))
@@ -36,44 +38,29 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
         }
     }, [listing.scrapedData]);
 
-    // --- HELPERS ---
     const isEditable = activeTab === 'optimized';
 
-    // --- TAG MANAGER LOGIC (STRICT & COLORFUL) ---
-
+    // --- TAG HELPERS ---
     const parsePreserved = (str: string) => str.split(',').map(t => t.trim()).filter(Boolean);
-
-    // Helper to get color based on risk score (1-5)
     const getTagColor = (score: number) => {
         switch (score) {
-            case 5: return 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200'; // Danger
-            case 4: return 'bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200'; // High Risk
-            case 3: return 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200'; // Caution
-            case 2: return 'bg-lime-100 text-lime-800 border-lime-200 hover:bg-lime-200'; // Low Risk
-            case 1:
-            default: return 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'; // Safe
+            case 5: return 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200';
+            case 4: return 'bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200';
+            case 3: return 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200';
+            case 2: return 'bg-lime-100 text-lime-800 border-lime-200 hover:bg-lime-200';
+            case 1: default: return 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100';
         }
     };
 
     const addTag = (tagText: string, target: 'main' | 'preserved', riskScore: number = 1) => {
         const cleanTag = tagText.trim();
         if (!cleanTag) return;
-
         let mainTags = [...listing.generatedData.tags];
         let preservedTags = parsePreserved(listing.preservedTags);
-
-        // 1. STRICT REMOVAL: Remove from BOTH lists first
         mainTags = mainTags.filter(t => t.text !== cleanTag);
         preservedTags = preservedTags.filter(t => t !== cleanTag);
-
-        // 2. ADD TO TARGET
-        if (target === 'main') {
-            mainTags.push({ text: cleanTag, riskScore });
-        } else {
-            preservedTags.push(cleanTag);
-        }
-
-        // 3. UPDATE STATE
+        if (target === 'main') mainTags.push({ text: cleanTag, riskScore });
+        else preservedTags.push(cleanTag);
         onUpdate(listing.id, {
             generatedData: { ...listing.generatedData, tags: mainTags },
             preservedTags: preservedTags.join(', ')
@@ -83,7 +70,6 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
     const removeTag = (tagText: string) => {
         const mainTags = listing.generatedData.tags.filter(t => t.text !== tagText);
         const preservedTags = parsePreserved(listing.preservedTags).filter(t => t !== tagText);
-
         onUpdate(listing.id, {
             generatedData: { ...listing.generatedData, tags: mainTags },
             preservedTags: preservedTags.join(', ')
@@ -91,9 +77,54 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
     };
 
     const handleTagDrop = (tagText: string, target: 'main' | 'preserved') => {
-        // Find existing risk if moving from main to preserved and back, or default to safe (1)
         const existing = listing.generatedData.tags.find(t => t.text === tagText);
         addTag(tagText, target, existing?.riskScore || 1);
+    };
+
+    // --- IMAGE ACTIONS ---
+    const handleDownloadImage = async (url: string, index: number) => {
+        try {
+            const response = await fetch(url);
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            // Try to guess extension
+            const ext = blob.type.split('/')[1] || 'jpg';
+            link.download = `${listing.title.substring(0, 20).replace(/\s+/g, '_')}_${index + 1}.${ext}`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(blobUrl);
+        } catch (err) {
+            console.error(err);
+            // Fallback
+            window.open(url, '_blank');
+        }
+    };
+
+    const handleCopyImage = async (url: string, index: number) => {
+        try {
+            setCopyStatus({ index, status: 'copying' });
+            const response = await fetch(url);
+            const blob = await response.blob();
+
+            // Clipboard API requires specific types (usually PNG)
+            // If it's not PNG, we might need canvas conversion, but browsers are getting better.
+            // Let's try direct write first.
+            await navigator.clipboard.write([
+                new ClipboardItem({
+                    [blob.type]: blob
+                })
+            ]);
+
+            setCopyStatus({ index, status: 'success' });
+            setTimeout(() => setCopyStatus({ index: -1, status: 'idle' }), 2000);
+        } catch (err) {
+            console.error("Copy failed", err);
+            alert("Could not copy image. Browser security might differ for this file type.");
+            setCopyStatus({ index: -1, status: 'idle' });
+        }
     };
 
     // --- API HANDLERS ---
@@ -102,14 +133,12 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
         if (!tab.id) return;
         chrome.tabs.sendMessage(tab.id, { type: 'SCRAPE_PAGE' }, (response) => {
             if (response && response.success) {
-                // Convert scraped string tags to objects (Default risk 1)
                 const scrapedTagObjects: TagItem[] = response.data.tags.split(',').map((t: string) => ({ text: t.trim(), riskScore: 1 }));
-
                 onUpdate(listing.id, {
                     scrapedData: response.data,
                     generatedData: { ...response.data, tags: scrapedTagObjects },
                     title: response.data.title || "Scraped Product",
-                    imagePreview: response.data.imagePreview
+                    images: response.data.images // Save Array
                 });
             }
         });
@@ -119,15 +148,13 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
         if (!settings.apiKey) return alert("Add API Key in Settings!");
         setIsGenerating(true);
         try {
-            // Format current data for API (convert object tags back to string for the prompt context)
             const tagsString = listing.generatedData.tags.map(t => t.text).join(', ');
             const apiInput = { ...listing.generatedData, tags: tagsString };
 
-            let img = listing.imagePreview;
+            // Use first image for AI context if available
+            let img = listing.images && listing.images.length > 0 ? listing.images[0] : null;
 
             const result: OptimizedResult = await generateMetadata(settings, img, apiInput);
-
-            // Result comes back as { title, desc, tags: [{text, riskScore}, ...] }
             onUpdate(listing.id, { generatedData: result });
             setActiveTab('optimized');
         } catch (e: any) {
@@ -140,42 +167,19 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
     const handleAutofill = async () => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!tab.id) return;
-
-        // Join Preserved + Active Tags for final output string
         const activeTagStrings = listing.generatedData.tags.map(t => t.text);
         const preservedList = parsePreserved(listing.preservedTags);
         const finalTags = [...preservedList, ...activeTagStrings].filter(Boolean).join(', ');
-
         const payload = {
             title: listing.generatedData.title,
             description: listing.generatedData.description,
             tags: finalTags
         };
-
         chrome.tabs.sendMessage(tab.id, { type: 'FILL_FORM', payload });
     };
 
-    const handleDownloadImage = async (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!listing.imagePreview) return;
-        try {
-            const response = await fetch(listing.imagePreview);
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `${listing.title || 'design'}.png`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-        } catch (err) {
-            const link = document.createElement('a');
-            link.href = listing.imagePreview;
-            link.download = `${listing.title || 'design'}.png`;
-            link.click();
-        }
-    };
+    // Helper to safely get the main preview for the header
+    const mainThumbnail = listing.images && listing.images.length > 0 ? listing.images[0] : null;
 
     return (
         <div className="bg-white border border-slate-200 rounded-lg mb-3 shadow-sm overflow-hidden transition-all">
@@ -187,8 +191,8 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
                     onUpdate(listing.id, { isExpanded: !listing.isExpanded });
                 }}>
                 <div className="flex items-center gap-3 overflow-hidden flex-1">
-                    {listing.imagePreview ? (
-                        <img src={listing.imagePreview} className="w-10 h-10 object-cover rounded border border-slate-200" />
+                    {mainThumbnail ? (
+                        <img src={mainThumbnail} className="w-10 h-10 object-cover rounded border border-slate-200" />
                     ) : <div className="w-10 h-10 bg-slate-200 rounded flex items-center justify-center"><Upload size={16} /></div>}
                     <span className="font-bold text-sm text-slate-700 truncate max-w-[180px]">{listing.title}</span>
                 </div>
@@ -201,14 +205,38 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
             {listing.isExpanded && (
                 <div className="p-3">
 
-                    {/* IMAGE AREA */}
-                    {listing.imagePreview && (
-                        <div className="relative mb-4 group">
-                            <img src={listing.imagePreview} className="w-full h-32 object-cover rounded-lg border border-slate-200" />
-                            <button onClick={handleDownloadImage}
-                                className="absolute bottom-2 right-2 bg-black/70 hover:bg-black/90 text-white px-3 py-1.5 rounded text-xs font-bold flex items-center gap-1 shadow-md transition-opacity">
-                                <Download size={12} /> Download
-                            </button>
+                    {/* --- MINI GALLERY FILMSTRIP --- */}
+                    {listing.images && listing.images.length > 0 && (
+                        <div className="mb-4 overflow-x-auto pb-2">
+                            <div className="flex gap-2 w-max">
+                                {listing.images.map((imgUrl, idx) => (
+                                    <div key={idx} className="relative group w-24 h-24 flex-shrink-0 rounded-lg border border-slate-200 overflow-hidden">
+                                        <img src={imgUrl} className="w-full h-full object-cover" />
+
+                                        {/* Hover Overlay */}
+                                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+
+                                            {/* Download Button */}
+                                            <button
+                                                onClick={() => handleDownloadImage(imgUrl, idx)}
+                                                className="bg-white text-slate-800 p-1.5 rounded-full hover:bg-slate-100 shadow-sm"
+                                                title="Download"
+                                            >
+                                                <Download size={14} />
+                                            </button>
+
+                                            {/* Copy Button */}
+                                            <button
+                                                onClick={() => handleCopyImage(imgUrl, idx)}
+                                                className={`${copyStatus.index === idx && copyStatus.status === 'success' ? 'bg-green-500 text-white' : 'bg-white text-slate-800'} p-1.5 rounded-full hover:opacity-90 shadow-sm transition-colors`}
+                                                title="Copy to Clipboard"
+                                            >
+                                                {copyStatus.index === idx && copyStatus.status === 'success' ? <Check size={14} /> : <Copy size={14} />}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     )}
 
@@ -226,7 +254,6 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
 
                     {/* MAIN FORM */}
                     <div className="space-y-4">
-
                         {/* Title */}
                         <div>
                             <label className="text-[10px] font-bold text-slate-400 uppercase">Title</label>
@@ -248,7 +275,6 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
                         {/* TAG MANAGER */}
                         {isEditable ? (
                             <div className="space-y-3">
-
                                 {/* Preserved Zone */}
                                 <div className="bg-indigo-50 p-2 rounded border border-indigo-100"
                                     onDragOver={e => e.preventDefault()}
@@ -310,10 +336,8 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
                                         </div>
                                     </div>
                                 </div>
-
                             </div>
                         ) : (
-                            /* Read-Only Tags for Original Tab */
                             <div>
                                 <label className="text-[10px] font-bold text-slate-400 uppercase">Original Tags</label>
                                 <div className="p-2 bg-slate-50 border border-dashed border-slate-300 rounded text-xs text-slate-500 italic leading-relaxed">
@@ -323,7 +347,7 @@ export const ListingCard: React.FC<Props> = ({ listing, settings, onUpdate, onDe
                         )}
                     </div>
 
-                    {/* FOOTER ACTIONS - ALWAYS VISIBLE */}
+                    {/* FOOTER ACTIONS */}
                     <div className="mt-4 grid grid-cols-3 gap-2">
                         <button onClick={handleScrape} className="bg-gray-100 text-gray-600 py-2.5 rounded text-xs font-bold hover:bg-gray-200 border border-gray-200">
                             👇 GRAB INFO

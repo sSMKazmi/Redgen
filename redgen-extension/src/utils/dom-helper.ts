@@ -21,20 +21,37 @@ export const scrapeProductPage = () => {
         });
         const uniqueTags = [...new Set(tagsArray)].join(', ');
 
-        // 4. Grab Image
-        const imgContainer = document.querySelector('[class*="ArtworkInfo_imageContainer"]');
-        const imgEl = imgContainer?.querySelector('img');
-        const imagePreview = imgEl?.src || '';
+        // 4. Grab HIGH-RES Images (The new logic)
+        const images: string[] = [];
 
-        return { title, description, tags: uniqueTags, imagePreview };
+        // We target the main swiper slides (ignoring the small carousel below it)
+        const slideImages = document.querySelectorAll('[data-testid="product-preview-image"] .swiper-slide img');
+
+        slideImages.forEach((img: any) => {
+            // Try to get the best resolution from srcset first
+            let src = img.currentSrc || img.src;
+
+            // If possible, force the x1000 version if available in the source set but not active
+            // (Redbubble URL hack: usually just ensuring we don't get the tiny thumb)
+            if (src && !images.includes(src)) {
+                images.push(src);
+            }
+        });
+
+        // Fallback if swiper logic fails (grab the og:image or similar)
+        if (images.length === 0) {
+            const mainImg = document.querySelector('[class*="ArtworkInfo_imageContainer"] img') as HTMLImageElement;
+            if (mainImg?.src) images.push(mainImg.src);
+        }
+
+        return { title, description, tags: uniqueTags, images };
     } catch (e) {
         console.error("RedGen Scraper Error:", e);
-        return { title: "", description: "", tags: "", imagePreview: "" };
+        return { title: "", description: "", tags: "", images: [] };
     }
 };
 
 export const autofillUploadPage = (data: { title: string; tags: string; description: string }) => {
-
     // Helper to force value update on React controlled inputs
     const setNativeValue = (element: HTMLElement, value: string) => {
         const valueSetter = Object.getOwnPropertyDescriptor(element, 'value')?.set;
@@ -54,9 +71,8 @@ export const autofillUploadPage = (data: { title: string; tags: string; descript
         element.dispatchEvent(new Event('blur', { bubbles: true }));
     };
 
-    // --- UPDATED SELECTORS BASED ON YOUR HTML ---
     const titleInput = document.querySelector('#work_title_en') as HTMLInputElement;
-    const tagsInput = document.querySelector('#work_tag_field_en') as HTMLTextAreaElement; // <--- FIXED ID
+    const tagsInput = document.querySelector('#work_tag_field_en') as HTMLTextAreaElement;
     const descInput = document.querySelector('#work_description_en') as HTMLTextAreaElement;
 
     if (titleInput) {
